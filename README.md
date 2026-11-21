@@ -35,7 +35,7 @@ own GPU, no green screen and no cloud.
 ## Install
 
 ```bash
-git clone https://github.com/<you>/corridorkey-linux.git
+git clone https://github.com/stark1ng/corridorkey-linux.git
 cd corridorkey-linux
 ./setup.sh          # venv, PySide6 + FastAPI, upstream engine, torch cu128, weights (~5 GB)
 ./run.sh            # starts the local daemon and the window
