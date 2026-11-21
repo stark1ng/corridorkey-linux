@@ -4,12 +4,17 @@
 Что делает: берёт готовый рендер из `renders/manifest.json`, создаёт в **текущей**
 композиции Fusion (страница Fusion активного клипа таймлайна) цепочку
 
-    Loader (plate / исходник) ─┐
-                               ├─ Merge ─ MediaOut
-    Loader (cutout|fg EXR) ────┘
-    Loader (alpha EXR) ── Garbage Matte у Merge  (когда альфа отдельно)
+    MediaIn (исходник клипа) ──┐
+                                ├─ Merge ─ MediaOut
+    Loader (cutout|fg) ─────────┘
+    Loader (alpha) ── Garbage Matte у MatteControl  (когда альфа отдельно)
 
 и ничего не рендерит. Исходные медиа не изменяются, создаются только ноды.
+
+**Loader Fusion читает только секвенции.** `.mp4`/`.mov` в Loader дают сплошной
+чёрный кадр (проверено на 21.1), одиночная картинка живёт лишь на кадре 0. Поэтому
+плашка берётся из `MediaIn` клипа, а фон и видео-результаты сначала перегоняются
+`ffmpeg` в PNG-секвенцию в папке работы (`_ck_seq_<роль>/`).
 
 Запуск (системный python 3.12, как в resolve_client.py):
 
@@ -39,6 +44,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 MANIFEST = ROOT / "renders" / "manifest.json"
 STILL_EXT = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
+MOVIE_EXT = (".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v")
+SEQ_EXT = (".exr", ".dpx", ".tif", ".tiff", ".png", ".jpg", ".jpeg")
 
 
 # ── выбор работы ────────────────────────────────────────────────────────────
@@ -84,22 +91,72 @@ def find_sequences(outdir: Path) -> dict[str, str]:
     return seqs
 
 
+def find_movies(outdir: Path) -> dict[str, str]:
+    """Видео-результаты работы (alpha/fg/cutout в mp4): {'alpha': path, ...}.
+
+    В Loader их отдавать нельзя — чёрный кадр, поэтому они перегоняются в PNG.
+    """
+    found: dict[str, str] = {}
+    if not outdir.is_dir():
+        return found
+    for f in sorted(outdir.iterdir()):
+        if not (f.is_file() and f.suffix.lower() in MOVIE_EXT):
+            continue
+        for kind in ("cutout", "alpha", "fg", "checker"):
+            if kind in f.stem:
+                found.setdefault(kind, str(f))
+                break
+    return found
+
+
+def _media_in(comp):
+    """MediaIn композиции клипа = исходник таймлайна (mp4 в Loader не читается)."""
+    for tool in (comp.GetToolList() or {}).values():
+        if tool.GetAttrs().get("TOOLS_RegID") == "MediaIn":
+            return tool
+    return None
+
+
 # ── сборка композа ──────────────────────────────────────────────────────────
-def plan(job: dict, seqs: dict[str, str], plate: str, bg: str | None) -> list[str]:
+def plan(job: dict, seqs: dict[str, str], movies: dict[str, str], plate: str,
+         bg: str | None) -> list[str]:
     """Что и как будет соединено — печатается в --dry-run и перед сборкой."""
-    lines = [f"работа {job['id']}: {job.get('input')}", f"  plate : {plate}"]
+    lines = [f"работа {job['id']}: {job.get('input')}",
+             f"  plate : {plate} → MediaIn клипа (mp4 в Loader не читается)"]
+    have = {**{k: v for k, v in movies.items()}, **seqs}
     for kind in ("cutout", "fg", "alpha"):
         if kind in seqs:
             lines.append(f"  {kind:<6}: {seqs[kind]}")
-    if "cutout" in seqs:
-        lines.append("  схема : cutout (RGBA) over " + (bg or "plate"))
-    elif "fg" in seqs and "alpha" in seqs:
-        lines.append("  схема : fg + MatteControl(alpha) → premult, over " + (bg or "plate"))
-    elif "alpha" in seqs:
-        lines.append(f"  схема : plate + MatteControl(alpha), over {bg or 'plate'}")
+        elif kind in movies:
+            lines.append(f"  {kind:<6}: {movies[kind]} → PNG-секвенция")
+    if "cutout" in have:
+        lines.append("  схема : cutout (RGBA) over " + (bg or "плашка"))
+    elif "fg" in have and "alpha" in have:
+        lines.append("  схема : fg + MatteControl(alpha) → premult, over " + (bg or "плашка"))
+    elif "alpha" in have:
+        lines.append(f"  схема : плашка + MatteControl(alpha), over {bg or 'плашка'}")
     else:
-        lines.append("  схема : только plate (в работе нет EXR — нужен рендер с --exr)")
+        lines.append("  схема : только плашка (в работе нет ни EXR, ни alpha/fg видео)")
+    if bg:
+        ext = Path(bg).suffix.lower()
+        how = "PNG-секвенция" if ext in MOVIE_EXT or ext in STILL_EXT else "как есть"
+        lines.append(f"  фон   : {bg} → {how}")
     return lines
+
+
+def _has_tool(comp, name: str) -> bool:
+    for tool in (comp.GetToolList() or {}).values():
+        if tool.GetAttrs().get("TOOLS_Name") == name:
+            return True
+    return False
+
+
+def _get_or_add(comp, reg_id: str, name: str, x: int, y: int):
+    """Нод по имени, а не новый: повторная сборка не плодит ck_*-копии."""
+    for tool in (comp.GetToolList() or {}).values():
+        if tool.GetAttrs().get("TOOLS_Name") == name:
+            return tool
+    return _add(comp, reg_id, name, x, y)
 
 
 def _add(comp, reg_id: str, name: str, x: int, y: int):
@@ -158,7 +215,7 @@ def _matte(comp, image, alpha):
     полученную альфу. `MultiplyGarbageMatte` ставить нельзя: он умножает картинку на
     саму garbage-маску, то есть гасит субъект в ноль.
     """
-    mc = _add(comp, "MatteControl", "ck_matte", -200, 200)
+    mc = _get_or_add(comp, "MatteControl", "ck_matte", -200, 200)
     _connect(mc, "Background", image)
     _connect(mc, "Garbage.Matte", alpha)
     for key, val in (("Garbage.MaskInverted", 1.0), ("PostMultiplyImage", 1.0)):
@@ -169,71 +226,118 @@ def _matte(comp, image, alpha):
     return mc
 
 
-def _still_to_video(src: str, like: str, dst: Path) -> str:
-    """Fusion-Loader не держит одиночную картинку на кадрах за её диапазоном (0..1).
-
-    Поэтому статичный фон превращаем в короткий клип той же длительности, что и
-    плашка: тогда фон виден на всех кадрах композа.
-    """
-    if dst.is_file():
-        return str(dst)
-    dur = 5.0
+def _probe_fps(path: str, default: float = 24.0) -> float:
     try:
         out = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=nw=1:nk=1", like],
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate", "-of", "default=nw=1:nk=1", path],
             capture_output=True, text=True, timeout=20).stdout.strip()
-        if out:
-            dur = max(1.0, float(out))
+        num, _, den = out.partition("/")
+        val = float(num) / float(den or 1)
+        return val if val > 0 else default
     except (OSError, ValueError, subprocess.SubprocessError):
-        pass
-    dst.parent.mkdir(parents=True, exist_ok=True)
+        return default
+
+
+def _probe_frames(path: str) -> int:
+    """Сколько кадров в файле (для секвенции той же длины, что и плашка)."""
     try:
-        subprocess.run(
-            ["ffmpeg", "-v", "error", "-y", "-loop", "1", "-i", src, "-t", f"{dur:.3f}",
-             "-r", "24", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-crf", "16", str(dst)],
-            capture_output=True, timeout=180, check=True)
-        return str(dst)
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+             "-show_entries", "stream=nb_read_frames", "-of", "default=nw=1:nk=1", path],
+            capture_output=True, text=True, timeout=60).stdout.strip()
+        return max(1, int(out.splitlines()[0]))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 1
+
+
+def _to_sequence(src: str, dst_dir: Path, prefix: str, fps: float,
+                 frames: int | None = None) -> str:
+    """Файл → PNG-секвенция; вернуть путь первого кадра.
+
+    Loader Fusion не читает mp4/mov (чёрный кадр) и не держит одиночную картинку
+    дальше первого кадра. Секвенция PNG снимает оба ограничения. Для статичной
+    картинки `frames` задаёт длину: она повторяется нужное число кадров.
+    Повторный вызов на готовой секвенции ничего не делает.
+    """
+    first = dst_dir / f"{prefix}_000000.png"
+    if first.is_file():
+        return str(first)
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    still = Path(src).suffix.lower() in STILL_EXT
+    args = ["ffmpeg", "-v", "error", "-y"]
+    if still:
+        dur = max(1, frames or 1) / max(fps, 1.0)
+        args += ["-loop", "1", "-t", f"{dur:.4f}", "-i", src]
+    else:
+        args += ["-i", src]
+    args += ["-start_number", "0", "-r", f"{fps:.6g}",
+             str(dst_dir / f"{prefix}_%06d.png")]
+    try:
+        subprocess.run(args, capture_output=True, timeout=900, check=True)
     except (OSError, subprocess.SubprocessError) as exc:
-        print(f"  [warn] не удалось сделать видео из фона ({exc}); беру картинку как есть")
-        return src
+        raise SystemExit(f"не удалось сделать секвенцию из {src}: {exc}")
+    if not first.is_file():
+        raise SystemExit(f"ffmpeg не создал ни одного кадра из {src}")
+    return str(first)
 
 
-def build_comp(comp, job: dict, seqs: dict[str, str], plate: str,
-               bg: str | None) -> dict[str, str]:
+def build_comp(comp, job: dict, seqs: dict[str, str], movies: dict[str, str],
+               plate: str, bg: str | None) -> dict[str, str]:
     """Создать ноды в композиции; вернуть {роль: имя нода}."""
     made: dict[str, str] = {}
-    plate_ld = _add(comp, "Loader", "ck_plate", -400, 0)
-    plate_ld.SetInput("Clip", plate)
-    made["plate"] = plate_ld.Name
+    outdir = Path(job.get("output_dir") or ".")
+    fps = _probe_fps(plate)
+    plate_frames = _probe_frames(plate)
+
+    # плашка — исходник клипа из MediaIn: mp4 в Loader даёт чёрный кадр
+    plate_src = _media_in(comp)
+    if plate_src is not None:
+        made["plate"] = plate_src.Name
+    else:
+        plate_seq = _to_sequence(plate, outdir / "_ck_seq_plate", "plate", fps)
+        plate_src = _get_or_add(comp, "Loader", "ck_plate", -400, 0)
+        plate_src.SetInput("Clip", plate_seq)
+        made["plate"] = plate_src.Name
+
+    def source(kind: str) -> str | None:
+        """EXR-секвенция как есть, видео → PNG-секвенция, иначе None."""
+        if kind in seqs:
+            return seqs[kind]
+        if kind in movies:
+            return _to_sequence(movies[kind], outdir / f"_ck_seq_{kind}", kind, fps)
+        return None
 
     fg_ld = None
     alpha_ld = None
-    if "cutout" in seqs:
-        fg_ld = _add(comp, "Loader", "ck_cutout", -400, 200)
-        fg_ld.SetInput("Clip", seqs["cutout"])
+    cutout = source("cutout")
+    fg = source("fg")
+    alpha = source("alpha")
+    if cutout:
+        fg_ld = _get_or_add(comp, "Loader", "ck_cutout", -400, 200)
+        fg_ld.SetInput("Clip", cutout)
         made["cutout"] = fg_ld.Name
-    elif "fg" in seqs:
-        fg_ld = _add(comp, "Loader", "ck_fg", -400, 200)
-        fg_ld.SetInput("Clip", seqs["fg"])
+    elif fg:
+        fg_ld = _get_or_add(comp, "Loader", "ck_fg", -400, 200)
+        fg_ld.SetInput("Clip", fg)
         made["fg"] = fg_ld.Name
-
-    if "alpha" in seqs and "cutout" not in seqs:
-        alpha_ld = _add(comp, "Loader", "ck_alpha", -400, 400)
-        alpha_ld.SetInput("Clip", seqs["alpha"])
+    if alpha and not cutout:
+        alpha_ld = _get_or_add(comp, "Loader", "ck_alpha", -400, 400)
+        alpha_ld.SetInput("Clip", alpha)
         made["alpha"] = alpha_ld.Name
 
-    merge = _add(comp, "Merge", "ck_merge", 0, 0)
+    merge = _get_or_add(comp, "Merge", "ck_merge", 0, 0)
     made["merge"] = merge.Name
 
-    background = plate_ld
+    background = plate_src
     if bg:  # новый фон вместо исходной плашки
+        ext = Path(bg).suffix.lower()
         bg_clip = bg
-        if Path(bg).suffix.lower() in STILL_EXT:
-            # одиночная картинка видна в Fusion только на кадре 0 → делаем клип
-            bg_clip = _still_to_video(
-                bg, plate, Path(job.get("output_dir") or ".") / "_ck_bg.mp4")
-        bg_ld = _add(comp, "Loader", "ck_bg", -400, -200)
+        if ext in MOVIE_EXT or ext in STILL_EXT:
+            # mp4 в Loader чёрный, одиночная картинка живёт один кадр → секвенция
+            bg_clip = _to_sequence(bg, outdir / "_ck_seq_bg", "bg", fps,
+                                   frames=plate_frames)
+        bg_ld = _get_or_add(comp, "Loader", "ck_bg", -400, -200)
         bg_ld.SetInput("Clip", bg_clip)
         made["bg"] = bg_ld.Name
         background = bg_ld
@@ -245,17 +349,21 @@ def build_comp(comp, job: dict, seqs: dict[str, str], plate: str,
             foreground = _matte(comp, fg_ld, alpha_ld)
             made["matte"] = foreground.Name
     elif alpha_ld is not None:
-        foreground = _matte(comp, plate_ld, alpha_ld)
+        foreground = _matte(comp, plate_src, alpha_ld)
         made["matte"] = foreground.Name
 
     _connect(merge, "Background", background)
     if foreground is not None:
         _connect(merge, "Foreground", foreground)
     else:
-        made["note"] = "нет EXR-результатов — в композе только plate"
+        made["note"] = "нет результатов — в композе только плашка"
 
     out = _media_out(comp) or _add(comp, "MediaOut", "ck_out", 400, 0)
-    _connect(out, "Input", merge)
+    for tool in (comp.GetToolList() or {}).values():
+        # лишние MediaOut (например от AddFusionComp) тоже ведут на merge:
+        # иначе Resolve может смотреть в пустой выход
+        if tool.GetAttrs().get("TOOLS_RegID") == "MediaOut":
+            _connect(tool, "Input", merge)
     made["out"] = out.Name
     return made
 
@@ -299,20 +407,66 @@ def connect():
     return resolve
 
 
+def _timeline_item_at_playhead(resolve):
+    p = resolve.GetProjectManager().GetCurrentProject()
+    tl = p.GetCurrentTimeline() if p else None
+    if tl is None:
+        return None, None
+    items = tl.GetItemListInTrack("video", 1) or []
+    if not items:
+        return tl, None
+    tc = None
+    try:
+        tc = tl.GetCurrentTimecode()
+        hours, minutes, seconds, frames = (int(x) for x in tc.split(":"))
+        fps = float(p.GetSetting("timelineFrameRate") or 24)
+        frame = int(((hours * 3600 + minutes * 60 + seconds) * fps)) + frames + tl.GetStartFrame()
+    except (AttributeError, TypeError, ValueError):
+        frame = None
+    if frame is not None:
+        for it in items:
+            if it.GetStart() <= frame < it.GetEnd():
+                return tl, it
+    return tl, items[0]
+
+
 def active_comp(resolve):
-    fusion = resolve.Fusion()
-    comp = fusion.GetCurrentComp() if fusion else None
+    """Композиция для сборки — всегда новая, через `AddFusionComp`.
+
+    Проверено на 21.1: композиция, созданная `AddFusionComp`, попадает в рендер,
+    а композиция, появившаяся от открытия страницы Fusion (и то, что отдают
+    `GetFusionCompByName`/`GetFusionCompByIndex`), строится и рисуется в Viewer,
+    но Deliver рендерит исходник клипа. Поэтому сборка всегда делает свой комп.
+    """
+    tl, item = _timeline_item_at_playhead(resolve)
+    comp = None
+    if item is not None:
+        names = item.GetFusionCompNameList() or []   # надёжнее, чем GetFusionCompCount
+        if names:
+            last = item.GetFusionCompByIndex(len(names))
+            if last is not None and _has_tool(last, "ck_merge"):
+                comp = last          # наша прошлая сборка — правим её
+                print(f"  [i] правлю свою композицию {comp.GetAttrs().get('COMPS_Name')}")
+        if comp is None:
+            # новая композиция: только она применяется к клипу в текущей сессии
+            comp = item.AddFusionComp()
+            if comp is not None and names:
+                print(f"  [i] у клипа уже {len(names)} композиций Fusion — добавил свою; "
+                      "старые не тронуты")
     if comp is None:
-        # иногда композиция клипа создаётся только после открытия страницы Fusion
-        resolve.OpenPage("fusion")
-        for _ in range(10):
-            time.sleep(1.0)
-            comp = fusion.GetCurrentComp() if fusion else None
-            if comp is not None:
-                break
+        fusion = resolve.Fusion()
+        comp = fusion.GetCurrentComp() if fusion else None
+        if comp is None:
+            # иногда композиция клипа создаётся только после открытия страницы Fusion
+            resolve.OpenPage("fusion")
+            for _ in range(10):
+                time.sleep(1.0)
+                comp = fusion.GetCurrentComp() if fusion else None
+                if comp is not None:
+                    break
     if comp is None:
-        sys.exit("нет активной композиции Fusion: открой клип на таймлайне и страницу "
-                 "Fusion (клип → Fusion), затем повтори")
+        sys.exit("нет композиции Fusion у клипа под плейхедом: положи клип на таймлайн "
+                 "(можно создать композицию через Fusion-страницу) и повтори")
     return comp
 
 
@@ -342,11 +496,12 @@ def main(argv: list[str]) -> int:
     job = pick_job(spec)
     outdir = Path(job.get("output_dir") or "")
     seqs = find_sequences(outdir)
+    movies = find_movies(outdir)
     plate = plate_arg or job.get("input") or ""
     if not Path(plate).is_file():
         sys.exit(f"нет исходника-плашки: {plate}")
 
-    for line in plan(job, seqs, plate, bg):
+    for line in plan(job, seqs, movies, plate, bg):
         print(line)
     if dry:
         print("dry-run: композиция не тронута")
@@ -360,7 +515,7 @@ def main(argv: list[str]) -> int:
     except Exception:  # noqa: BLE001
         pass
     try:
-        made = build_comp(comp, job, seqs, plate, bg)
+        made = build_comp(comp, job, seqs, movies, plate, bg)
     finally:
         try:
             comp.Unlock()
