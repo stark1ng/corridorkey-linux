@@ -232,6 +232,19 @@
 
         <div class="form">
           <label class="field">
+            <span data-i18n="f_profile">VRAM profile</span>
+            <select id="profile">
+              <option value="auto" data-i18n="prof_auto">Auto — measure free VRAM</option>
+              <option value="720" data-i18n="prof_720">720p — hann 80/40</option>
+              <option value="1080" data-i18n="prof_1080">1080p — hann 48/24 · low VRAM</option>
+              <option value="1440" data-i18n="prof_1440">1440p — hann 24/12 · low VRAM</option>
+              <option value="4k" data-i18n="prof_4k">4K — hann 8/4 · low VRAM</option>
+              <option value="custom" data-i18n="prof_custom">Custom — Low VRAM flag only</option>
+            </select>
+            <p class="hint-text mono" id="profile-hint"></p>
+          </label>
+
+          <label class="field">
             <span data-i18n="f_outputs">Outputs</span>
             <select id="outputs">
               <option value="alpha fg" data-i18n="out_af">alpha + fg</option>

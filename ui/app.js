@@ -27,6 +27,19 @@
       f_output: "Output folder", f_output_ph: "default: renders/",
       f_outputs: "Outputs", out_af: "alpha + fg", out_all: "alpha + fg + checker + cutout",
       f_hint: "First-frame hint", f_hint_ph: "subject matte, frame 1",
+      f_profile: "VRAM profile",
+      prof_auto: "Auto — measure free VRAM",
+      prof_720: "720p — hann 80/40",
+      prof_1080: "1080p — hann 48/24 · low VRAM",
+      prof_1440: "1440p — hann 24/12 · low VRAM",
+      prof_4k: "4K — hann 8/4 · low VRAM",
+      prof_custom: "Custom — Low VRAM flag only",
+      prof_hint_auto: "auto: 720p → 80/40, 1080p → 48/24 low VRAM, 4K → 8/4 low VRAM",
+      prof_hint_720: "720p · 80/40 — peak ~7.5 GB (measured)",
+      prof_hint_1080: "1080p · 48/24 + low VRAM — needs >16 GB for bigger windows",
+      prof_hint_1440: "1440p · 24/12 + low VRAM — short windows, good consistency",
+      prof_hint_4k: "4K · 8/4 + low VRAM — slowest, smallest window",
+      prof_hint_custom: "low VRAM staging from the checkbox, window auto-selected",
       f_hint_q: "Hint quality", f_despill: "Despill",
       f_frames: "Frames (test)", f_frames_hint: "0 = all", f_frames_ph: "all",
       resolve_text: "Finished jobs are imported into the media pool through the official Scripting API. Resolve must be running with <b>External scripting = Local</b>.",
@@ -43,6 +56,9 @@
       t_deleted: "Removed from the queue", t_delete_err: "Could not remove: {e}",
       dlg_clip: "Clip to key", dlg_hint: "First-frame hint matte", dlg_out: "Output folder",
       s_queued: "queued", s_running: "rendering", s_done: "done", s_failed: "failed", s_cancelled: "cancelled",
+      s_interrupted: "interrupted",
+      title_retry: "Run again", t_retried: "Queued again: {n}", t_retry_err: "Retry failed: {e}",
+      pv_live_alpha: "ALPHA · live matte", pv_live_source: "SOURCE · live",
       t_added: "Added: {n}", t_exists: "Already in the list: {n}",
       t_need_clip: "Add a clip first", t_queued: "{n} job(s) queued",
       t_bad_file: "Need a video file: mp4, mov, mkv, mxf",
@@ -74,6 +90,19 @@
       f_output: "Папка результата", f_output_ph: "по умолчанию: renders/",
       f_outputs: "Выходы", out_af: "alpha + fg", out_all: "alpha + fg + checker + cutout",
       f_hint: "Хинт первого кадра", f_hint_ph: "маска субъекта, кадр 1",
+      f_profile: "Профиль VRAM",
+      prof_auto: "Авто — по свободной VRAM",
+      prof_720: "720p — hann 80/40",
+      prof_1080: "1080p — hann 48/24 · low VRAM",
+      prof_1440: "1440p — hann 24/12 · low VRAM",
+      prof_4k: "4K — hann 8/4 · low VRAM",
+      prof_custom: "Свой — только флаг Low VRAM",
+      prof_hint_auto: "авто: 720p → 80/40, 1080p → 48/24 low VRAM, 4K → 8/4 low VRAM",
+      prof_hint_720: "720p · 80/40 — пик ~7.5 ГБ (замерено)",
+      prof_hint_1080: "1080p · 48/24 + low VRAM — окно больше требует >16 ГБ",
+      prof_hint_1440: "1440p · 24/12 + low VRAM — короткие окна, стабильно",
+      prof_hint_4k: "4K · 8/4 + low VRAM — медленнее всего, окно минимальное",
+      prof_hint_custom: "low VRAM из чекбокса, окно подберётся автоматически",
       f_hint_q: "Качество хинта", f_despill: "Despill",
       f_frames: "Кадров (тест)", f_frames_hint: "0 = все", f_frames_ph: "все",
       resolve_text: "Готовые работы импортируются в медиапул через официальный Scripting API. Нужен запущенный Resolve и <b>External scripting = Local</b>.",
@@ -90,6 +119,9 @@
       t_deleted: "Убрано из очереди", t_delete_err: "Не удалось убрать: {e}",
       dlg_clip: "Клип для кеинга", dlg_hint: "Маска (хинт) первого кадра", dlg_out: "Папка для результатов",
       s_queued: "в очереди", s_running: "рендер", s_done: "готово", s_failed: "ошибка", s_cancelled: "отменено",
+      s_interrupted: "прервано",
+      title_retry: "Запустить снова", t_retried: "Снова в очереди: {n}", t_retry_err: "Повтор не удался: {e}",
+      pv_live_alpha: "АЛЬФА · живая маска", pv_live_source: "ИСХОДНИК · live",
       t_added: "Добавлено: {n}", t_exists: "Уже в списке: {n}",
       t_need_clip: "Сначала добавьте клип", t_queued: "В очереди задач: {n}",
       t_bad_file: "Нужен видеофайл: mp4, mov, mkv, mxf",
@@ -125,6 +157,7 @@
     renderPending();
     renderJobs(true);
     refreshPreview(true);
+    if (typeof syncProfile === "function") syncProfile();
   }
 
   /* ── state ──────────────────────────────────────────────────────────── */
@@ -148,6 +181,7 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const ICON_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
   const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 4h4"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M10 11v6M14 11v6"/></svg>';
+  const ICON_RETRY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.2-6.9"/><path d="M21 4v5h-5"/></svg>';
   const base = (p) => String(p || "").split(/[\\/]/).filter(Boolean).pop() || String(p || "");
   const gb = (mib) => (mib / 1024).toFixed(1);
 
@@ -182,6 +216,7 @@
 
   /* ── settings ───────────────────────────────────────────────────────── */
   const S = {
+    profile: $("#profile"),
     outputs: $("#outputs"),
     hint: $("#hint"),
     hintQ: $("#hint-q"),
@@ -192,8 +227,28 @@
     outdir: $("#outdir"),
   };
 
+  /* профили из таблицы upstream «Long Clips And Low VRAM» (16 ГБ: 720p 80/40,
+     1080p 48/24 low-VRAM, 1440p 24/12 low-VRAM, 4K 8/4 low-VRAM) */
+  const PROFILES = {
+    auto: {},
+    "720": { hann_chunk: 80, hann_stride: 40 },
+    "1080": { hann_chunk: 48, hann_stride: 24, low_vram: true },
+    "1440": { hann_chunk: 24, hann_stride: 12, low_vram: true },
+    "4k": { hann_chunk: 8, hann_stride: 4, low_vram: true },
+  };
+
+  function syncProfile() {
+    const p = S.profile.value;
+    const preset = PROFILES[p];
+    const lock = !!preset;
+    S.lowVram.disabled = lock;
+    if (preset) S.lowVram.checked = !!preset.low_vram;
+    $("#profile-hint").textContent = t("prof_hint_" + (p === "4k" ? "4k" : p));
+  }
+
   function readSettings() {
     return {
+      profile: S.profile.value,
       outputs: S.outputs.value,
       hint: S.hint.value.trim(),
       hint_quality: parseFloat(S.hintQ.value),
@@ -213,6 +268,7 @@
     try { v = JSON.parse(localStorage.getItem(LSK) || "null"); } catch (_) {}
     if (!v) return;
     if (v.outputs) S.outputs.value = v.outputs;
+    if (v.profile && PROFILES[v.profile] !== undefined) S.profile.value = v.profile;
     if (v.hint) S.hint.value = v.hint;
     if (typeof v.hint_quality === "number") S.hintQ.value = v.hint_quality;
     if (typeof v.despill === "number") S.despill.value = v.despill;
@@ -282,6 +338,7 @@
       <div class="progress"><div class="bar"><i></i></div></div>
       <div class="pct">0%</div>
       <div class="job-actions">
+        <button class="mini retry" data-act="retry" hidden aria-label="retry"></button>
         <button class="mini" data-act="folder" aria-label="open folder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
         </button>
@@ -293,6 +350,8 @@
         e.stopPropagation();
         if (btn.dataset.act === "kill") {
           if (btn.dataset.kill === "delete") deleteJob(j.id); else cancelJob(j.id);
+        } else if (btn.dataset.act === "retry") {
+          retryJob(j.id);
         } else openFolder(j.output_dir);
         return;
       }
@@ -316,11 +375,19 @@
     el.querySelector(".pct").textContent = Math.round(pct) + "%";
     el.querySelector('[data-act="folder"]').style.opacity = j.status === "done" ? "1" : ".3";
     const kill = el.querySelector('[data-act="kill"]');
-    const finished = j.status === "done" || j.status === "failed" || j.status === "cancelled";
+    const finished = j.status === "done" || j.status === "failed" ||
+      j.status === "cancelled" || j.status === "interrupted";
     kill.dataset.kill = finished ? "delete" : "cancel";
     kill.title = finished ? t("title_delete") : t("title_cancel");
     kill.setAttribute("aria-label", kill.title);
     kill.innerHTML = finished ? ICON_TRASH : ICON_X;
+    const retry = el.querySelector('[data-act="retry"]');
+    retry.hidden = !(j.status === "failed" || j.status === "cancelled" || j.status === "interrupted");
+    if (!retry.hidden && !retry.innerHTML) {
+      retry.innerHTML = ICON_RETRY;
+      retry.title = t("title_retry");
+      retry.setAttribute("aria-label", retry.title);
+    }
   }
 
   function renderJobs(force) {
@@ -380,6 +447,8 @@
     stopLive();
     state.pv.mode = "idle";
     state.pv.jobId = null;
+    if ($img.dataset.url) { URL.revokeObjectURL($img.dataset.url); $img.dataset.url = ""; }
+    $img.removeAttribute("src");
     $("#pv-idle").hidden = false;
     $img.hidden = true;
     $video.pause();
@@ -406,6 +475,7 @@
     if (state.pv.mode === "live" && state.pv.jobId === job.id && state.pv.timer) return;
     stopLive();
     state.pv = Object.assign(state.pv, { mode: "live", jobId: job.id, result: null });
+    if ($img.dataset.url) { URL.revokeObjectURL($img.dataset.url); $img.dataset.url = ""; }
     $("#pv-idle").hidden = true;
     $video.pause();
     $video.hidden = true;
@@ -417,18 +487,30 @@
     $("#pv-chip-res").textContent = m.width ? `${m.width}×${m.height}` : "—";
     $("#pv-chip-fmt").textContent = "source";
     $("#pv-dir").textContent = "";
-    const tick = () => {
+    const tick = async () => {
       const cur = state.jobs.find((x) => x.id === job.id) || job;
       if (cur.status !== "running" && cur.status !== "queued") { stopLive(); return refreshPreview(); }
       const fps = (cur.media && cur.media.fps) || 25;
       const frames = (cur.media && cur.media.frames) || 0;
       const frame = cur.frame || 0;
       const time = frame / fps;
-      $img.src = `${API}/jobs/${cur.id}/frame?kind=source&t=${time.toFixed(3)}&w=880&r=${Date.now()}`;
       const b = $("#pv-badge");
-      b.hidden = false;
-      b.textContent = `${Math.round(cur.progress || 0)}% · ${t("t_frame", { i: frame, n: frames })}`;
-      $("#pv-meta").textContent = `${fps.toFixed(2)} fps · ${t("pv_live")}`;
+      const meta = $("#pv-meta");
+      try {
+        const r = await fetch(`${API}/jobs/${cur.id}/live?t=${time.toFixed(3)}&w=880`, { cache: "no-store" });
+        if (!r.ok || state.pv.mode !== "live" || state.pv.jobId !== cur.id) return;
+        const kind = r.headers.get("X-CK-Kind") || "source";
+        const url = URL.createObjectURL(await r.blob());
+        if ($img.dataset.url) URL.revokeObjectURL($img.dataset.url);
+        $img.dataset.url = url;
+        $img.src = url;
+        $("#pv-chip-fmt").textContent = kind === "alpha" ? "alpha" : "source";
+        b.hidden = false;
+        b.textContent = `${Math.round(cur.progress || 0)}% · ${t("t_frame", { i: frame, n: frames })}`;
+        meta.textContent = `${fps.toFixed(2)} fps · ${t(kind === "alpha" ? "pv_live_alpha" : "pv_live_source")}`;
+      } catch (_) {
+        /* демон занят — следующий тик повторит */
+      }
     };
     tick();
     state.pv.timer = setInterval(tick, 1200);
@@ -638,6 +720,12 @@
       exr: s.exr,
       low_vram: s.low_vram,
     };
+    const preset = PROFILES[s.profile];
+    if (preset && preset.hann_chunk) {
+      p.hann_chunk = preset.hann_chunk;
+      p.hann_stride = preset.hann_stride;
+      p.low_vram = !!preset.low_vram;
+    }
     if (s.hint) p.hint_first_frame = s.hint;
     if (s.num_frames > 0) p.num_frames = s.num_frames;
     if (s.output_dir) p.output_dir = s.output_dir;
@@ -693,6 +781,20 @@
       poll();
     } catch (e) {
       toast(t("t_delete_err", { e: e.message }), "err");
+    }
+  }
+
+  async function retryJob(id) {
+    const j = state.jobs.find((x) => x.id === id);
+    try {
+      await api(`/jobs/${id}/retry`, { method: "POST" });
+      if (j) toast(t("t_retried", { n: base(j.input) }));
+      state.selected = id;
+      state.sig = "";
+      await poll();
+      refreshPreview(true);
+    } catch (e) {
+      toast(t("t_retry_err", { e: e.message }), "err");
     }
   }
 
@@ -837,6 +939,8 @@
     S.hint.addEventListener("change", () => { saveSettings(); syncHintWarn(); });
     S.hint.addEventListener("input", syncHintWarn);
 
+    S.profile.addEventListener("change", () => { syncProfile(); saveSettings(); });
+
     $("#lang").addEventListener("change", (e) => {
       lang = e.target.value;
       localStorage.setItem(LSL, lang);
@@ -894,6 +998,7 @@
   loadSettings();
   if (!localStorage.getItem(LSL)) localStorage.setItem(LSL, lang);
   applyI18n();
+  syncProfile();
   syncSliders();
   bind();
   syncHintWarn();

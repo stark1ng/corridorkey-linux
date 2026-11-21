@@ -110,3 +110,45 @@ VIRTUAL_ENV=.venv uv pip install fastapi "uvicorn[standard]" PySide6 requests
 Перед любыми изменениями кода: `cp <file> backups/<file>.YYYY-MM-DD.bak`
 (плоско в `backups/`). Перед крупными переделками — полная копия папки
 в `backups/full-project/YYYY-MM-DD/`.
+
+## Что добавлено 21.11 (вторая половина дня)
+
+- **Живая очередь**: `renders/queue.json` пишется на каждом переходе статуса
+  (`_save_queue`), при старте `_load_queue` возвращает незавершённые задачи как
+  `interrupted` с сохранённым `cmd`; `POST /jobs/{id}/retry` перезапускает их тем же
+  `cmd`. Демон регистрирует `atexit`-хук и гасит свой инференс при выходе — иначе
+  осиротевший процесс держит VRAM и следующий запуск падает по OOM.
+- **Живая маска**: `infer_live.py` подменяет `write_many` у
+  `corridorkey.video_io.ThreadedVideoWriter`/`ExrSequenceWriter` (клон апстрима не
+  правится) и кладёт `_live_alpha.jpg` (880 px, tmp+rename) после каждого окна;
+  демон запускает `infer_live.py` вместо `infer.py` и отдаёт кадр через
+  `GET /jobs/{id}/live` (заголовок `X-CK-Kind: alpha|source`), UI берёт его через
+  `fetch` → blob, иначе `<img>` с blob-URL течёт.
+- **Профили VRAM** в UI: Auto / 720p 80/40 / 1080p 48/24 low / 1440p 24/12 low /
+  4K 8/4 low / Custom; пресет блокирует чекбокс Low VRAM и уходит в payload как
+  `hann_chunk`/`hann_stride` (+`low_vram`).
+- **`resolve_compose.py`**: авто-сборка композа в Fusion через Resolve Scripting API
+  (Loader плашки + Loader cutout/fg/alpha + Merge + MatteControl → MediaOut),
+  `--bg` для нового фона, `--dry-run`, самопроверка связей.
+
+## Грабли Resolve / Fusion API (проверено на 21.1)
+
+- `tool.GetInput("Background")` возвращает **None даже при рабочей связи** — судить
+  только по `INPB_Connected` у объекта входа (`GetInputList()`).
+- `SetInput` для картиночных входов работает, но вложенные имена (`Garbage.Matte`)
+  надо ставить именно через `SetInput`, а простые (`Background`) можно и атрибутом.
+- `EffectMask` у Merge маскирует **весь** результат, включая фон: маску на вход
+  ставить нельзя, только на сам foreground (MatteControl).
+- У MatteControl «Garbage Matte» снимает то, что **внутри** маски → нужен
+  `Garbage.MaskInverted = 1`; премультиплай — `PostMultiplyImage = 1`.
+  `MultiplyGarbageMatte` гасит субъект в ноль, не использовать.
+- `comp.Save(path)` **переименовывает** композицию по имени файла — как проверку
+  не использовать.
+- Одиночная картинка в Loader живёт только на кадре 0 (GlobalEnd=1): статичный фон
+  превращать в короткий клип (`-loop 1 -t <длительность плашки>`), иначе кадры за
+  первым — чёрные.
+- Resolve пишет рендер только в разрешённые папки (`/mnt/Purple/Projects`), чужой
+  `TargetDir` в `SetRenderSettings` молча игнорируется.
+- Композиция клипа создаётся только после `resolve.OpenPage("fusion")` при активном
+  клипе таймлайна; до этого `fusion.GetCurrentComp()` возвращает None.
+

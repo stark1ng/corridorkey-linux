@@ -332,6 +332,7 @@ main,.nav,.foot{position:relative;z-index:2}
 .job[data-status="running"] .dot{background:var(--purple);box-shadow:0 0 12px rgba(123,57,252,.9);animation:pulse 1.6s ease-in-out infinite}
 .job[data-status="done"] .dot{background:#5ee0b0;box-shadow:0 0 10px rgba(94,224,176,.6)}
 .job[data-status="failed"] .dot,.job[data-status="cancelled"] .dot{background:var(--orange)}
+.job[data-status="interrupted"] .dot{background:#f5b06a;box-shadow:0 0 10px rgba(245,176,106,.55)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .job .name{font-family:var(--mono);font-size:.8125rem;color:#e8e3f7;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -345,6 +346,7 @@ main,.nav,.foot{position:relative;z-index:2}
 }
 .job[data-status="done"] .bar > i{background:linear-gradient(90deg,#2f9e7a,#5ee0b0);box-shadow:0 0 10px rgba(94,224,176,.35)}
 .job[data-status="failed"] .bar > i,.job[data-status="cancelled"] .bar > i{background:rgba(248,123,82,.7);box-shadow:none}
+.job[data-status="interrupted"] .bar > i{background:rgba(245,176,106,.65);box-shadow:none}
 .job[data-indet="1"] .bar > i{
   transition:none;animation:indet 1.9s ease-in-out infinite;
   background:linear-gradient(90deg,rgba(123,57,252,.10),var(--purple),rgba(123,57,252,.10));
@@ -359,6 +361,7 @@ main,.nav,.foot{position:relative;z-index:2}
 }
 .mini svg{width:14px;height:14px}
 .mini:hover{color:var(--ink);background:rgba(255,255,255,.07);border-color:rgba(164,132,215,.3)}
+.mini.retry:hover{color:#5ee0b0;border-color:rgba(94,224,176,.38);background:rgba(94,224,176,.10)}
 
 /* empty state */
 .empty{

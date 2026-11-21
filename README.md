@@ -13,13 +13,20 @@ own GPU, no green screen and no cloud.
 
 - **Queue, not casino.** Pick or drop clips, choose an output folder, press the big **Start**.
   Nothing renders until you say so.
-- **Live preview while it renders** — the panel shows the frame the model is working on.
+- **Live preview while it renders** — the panel shows the frame the model is working on, and
+  switches to the **matte** of the last finished window as soon as it exists.
+- **Resumable queue** — unfinished jobs are written to `renders/queue.json`; after a daemon
+  restart they come back as *interrupted* and one click on ↻ runs them again.
 - **Player for the result** — alpha / foreground / source toggle, frame-accurate scrubbing,
   fullscreen (with a fallback "cinema" mode if the browser refuses the Fullscreen API).
+- **VRAM profiles** — Auto, or a fixed Hann window for 720p / 1080p / 1440p / 4K (the upstream
+  table for a 16 GB card), so a shot never dies on an out-of-memory error because of a guess.
 - **Resource meters** — CPU, RAM and VRAM in the header, straight from `/proc` and `nvidia-smi`.
 - **EN / RU interface** (English by default).
 - **Resolve hand-off** — finished jobs are imported into the media pool through the official
-  Scripting API when Resolve is running with *External scripting = Local*.
+  Scripting API when Resolve is running with *External scripting = Local*, and
+  `resolve_compose.py` builds the Fusion comp (plate + cutout + Merge → MediaOut) in one call
+  instead of dragging nodes by hand.
 - **Dark, quiet UI** built as a local web app inside a Qt window, so the same interface opens
   in any browser at `http://127.0.0.1:8129/`.
 
@@ -73,7 +80,12 @@ pip install -r CorridorKey2.0/requirements.txt
 6. **Result** — the panel turns into a player. `Alpha` is the matte, `FG` the despilled
    foreground, `Source` the original plate; drag the timeline to any frame.
 7. **Queue rows** — ✕ cancels a running job, the trash icon removes a finished one from the
-   queue and the manifest (rendered files stay on disk).
+   queue and the manifest (rendered files stay on disk), ↻ re-runs a failed, cancelled or
+   interrupted job with the same command.
+8. **Fusion comp** — with Resolve open on a clip in the Fusion page:
+   `RESOLVE_SCRIPT_LIB=/opt/resolve/libs/Fusion/fusionscript.so PYTHONPATH=/opt/resolve/Developer/Scripting/Modules /usr/bin/python3.12 resolve_compose.py --bg new_background.png`
+   builds Loader → Merge → MediaOut and reports whether every image input really got wired.
+   `--dry-run` prints the plan without touching the comp; nothing is rendered.
 
 ![Player](docs/screenshots/player.png)
 
@@ -95,10 +107,12 @@ The window talks to a local daemon on `127.0.0.1:8129`, so the whole thing is sc
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/jobs` | queue a job (`input`, `hint_first_frame`, `outputs`, `num_frames`, `despill`, `exr`, `low_vram`, `output_dir`) |
+| `POST` | `/jobs` | queue a job (`input`, `hint_first_frame`, `outputs`, `num_frames`, `despill`, `exr`, `low_vram`, `hann_chunk`/`hann_stride`, `output_dir`) |
 | `GET` | `/jobs` | queue with status/progress/log tail |
 | `POST` | `/jobs/{id}/cancel` | stop a job |
+| `POST` | `/jobs/{id}/retry` | re-queue a failed / cancelled / interrupted job (same command) |
 | `DELETE` | `/jobs/{id}` | drop it from the queue and manifest |
+| `GET` | `/jobs/{id}/live?t=12.5` | live frame: matte if the wrapper already wrote one, else source (`X-CK-Kind` header) |
 | `GET` | `/jobs/{id}/frame?kind=source\|alpha\|fg&t=12.5` | JPEG frame, for live preview |
 | `GET` | `/jobs/{id}/result` | result metadata + media URLs |
 | `GET` | `/jobs/{id}/preview?kind=fg` | WebM preview (see troubleshooting) |
@@ -128,6 +142,14 @@ the subject filled white, everything else black, and keep *Hint quality* at 0.9�
 
 **File dialog looks odd / black.** The dialog is styled for this app; if your Qt theme fights it,
 set `QT_QPA_PLATFORMTHEME=` (empty) before launching.
+
+**A job that worked now dies with `CUDA out of memory`.** A VRAM profile pins the Hann window;
+if something else is using the GPU (a Resolve session holds ~1 GB), a fixed 80/40 window no
+longer fits. Switch the profile back to **Auto** — it measures free VRAM per clip.
+
+**Resolve renders only into its allowed folders.** When scripting Deliver, the `TargetDir` you
+pass must be one of the folders Resolve is allowed to write to (`/mnt/Purple/Projects` here);
+anything else is silently ignored and the render lands in the last used directory.
 
 ## Licence
 

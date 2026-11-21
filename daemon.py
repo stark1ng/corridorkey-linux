@@ -17,6 +17,7 @@ Manifest of finished jobs: <WORK>/manifest.json
 """
 from __future__ import annotations
 
+import atexit
 import json
 import mimetypes
 import os
@@ -37,10 +38,14 @@ import uvicorn
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT / "CorridorKey2.0"
 PY = ROOT / ".venv" / "bin" / "python"
+# Обёртка над infer.py: пишет живой JPEG альфы после каждого окна модели.
+LIVE_INFER = ROOT / "infer_live.py"
 WORK = ROOT / "renders"
 UI = ROOT / "ui"
 WORK.mkdir(exist_ok=True)
 MANIFEST = WORK / "manifest.json"
+# Незавершённые задачи — на диск, чтобы рестарт демона их не терял.
+QUEUE_FILE = WORK / "queue.json"
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".m4v")
 
@@ -69,6 +74,21 @@ def _save_manifest() -> None:
         if j["status"] in ("done", "failed")
     ]
     MANIFEST.write_text(json.dumps(done, ensure_ascii=False, indent=1))
+
+
+def _save_queue() -> None:
+    """Сохранить незавершённые задачи на диск (для восстановления после рестарта)."""
+    with _lock:
+        items = [
+            {k: j.get(k) for k in ("id", "input", "output_dir", "outputs", "status",
+                                   "cmd", "created_at", "hint", "media", "exr")}
+            for j in _jobs.values()
+            if j["status"] in ("queued", "running", "interrupted")
+        ]
+    try:
+        QUEUE_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=1))
+    except OSError:
+        pass
 
 
 class JobIn(BaseModel):
@@ -117,7 +137,8 @@ def add_job(job: JobIn) -> dict:
         base = Path(job.output_dir).expanduser()
         base.mkdir(parents=True, exist_ok=True)
     outdir = base / f"{inp.stem}_{jid}"
-    cmd = [str(PY), "-u", str(REPO / "infer.py"),
+    runner = LIVE_INFER if LIVE_INFER.is_file() else (REPO / "infer.py")
+    cmd = [str(PY), "-u", str(runner),
            "--input", str(inp),
            "--output_dir", str(outdir),
            "--outputs", *job.outputs]
@@ -147,6 +168,7 @@ def add_job(job: JobIn) -> dict:
     with _lock:
         _jobs[jid] = rec
     _queue.put(jid)
+    _save_queue()
     return {"id": jid, "media": media}
 
 
@@ -173,7 +195,31 @@ def cancel_job(jid: str) -> dict:
     j["cancel"] = True
     if _current == jid and _proc and _proc.poll() is None:
         _proc.terminate()
+    if j["status"] == "queued":
+        j["status"] = "cancelled"
+        j["finished_at"] = time.time()
+        _save_manifest()
+    _save_queue()
     return {"ok": True}
+
+
+@app.post("/jobs/{jid}/retry")
+def retry_job(jid: str) -> dict:
+    """Повторить задачу после interrupted / failed / cancelled — тем же cmd."""
+    j = _jobs.get(jid)
+    if not j:
+        raise HTTPException(404, "no such job")
+    if j["status"] in ("running", "queued"):
+        raise HTTPException(409, "job is already active")
+    if not j.get("cmd"):
+        raise HTTPException(409, "job has no stored command — add the clip again")
+    if not Path(j["input"]).is_file():
+        raise HTTPException(404, f"input is gone: {j['input']}")
+    j.update(status="queued", progress=0.0, frame=0, finished_at=None,
+             cancel=False, log_tail=[], created_at=time.time())
+    _save_queue()
+    _queue.put(jid)
+    return {"id": jid}
 
 
 # ── готовые файлы и предпросмотр ─────────────────────────────────────────
@@ -272,6 +318,26 @@ def job_frame(jid: str, kind: str = "source", t: float = 0.0, w: int = 960) -> R
             _frames.clear()
         _frames[key] = data
     return Response(content=data, media_type="image/jpeg")
+
+
+@app.get("/jobs/{jid}/live")
+def job_live_frame(jid: str, t: float = 0.0, w: int = 880) -> Response:
+    """Кадр для живого превью: матовая альфа, если обёртка уже её записала, иначе исходник."""
+    j = _jobs.get(jid)
+    if not j:
+        raise HTTPException(404, "no such job")
+    side = _job_dir(jid) / "_live_alpha.jpg"
+    try:
+        if side.is_file() and side.stat().st_size > 1024:
+            data = side.read_bytes()
+            return Response(content=data, media_type="image/jpeg",
+                            headers={"X-CK-Kind": "alpha", "Cache-Control": "no-store"})
+    except OSError:
+        pass
+    resp = job_frame(jid, kind="source", t=t, w=w)
+    resp.headers["X-CK-Kind"] = "source"
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 # ── WebM-предпросмотр (H.264 в QtWebEngine нет) ──────────────────────────
@@ -457,12 +523,29 @@ def _worker() -> None:
     while True:
         jid = _queue.get()
         with _lock:
-            j = _jobs[jid]
+            j = _jobs.get(jid)
+            if j is None:
+                continue
+            if j.get("cancel"):
+                j["status"] = "cancelled"
+                j["finished_at"] = time.time()
+                j = None
+        if j is None:
+            _save_queue()
+            continue
+        with _lock:
             j["status"] = "running"
             _current = jid
+        _save_queue()
         logf = WORK / f"{jid}.log"
-        Path(j["output_dir"]).mkdir(parents=True, exist_ok=True)
-        env = dict(os.environ, PYTHONUNBUFFERED="1")
+        outdir = Path(j["output_dir"])
+        outdir.mkdir(parents=True, exist_ok=True)
+        # старый живой кадр от предыдущего запуска не должен всплыть в превью
+        try:
+            (outdir / "_live_alpha.jpg").unlink()
+        except OSError:
+            pass
+        env = dict(os.environ, PYTHONUNBUFFERED="1", CK_LIVE_DIR=str(outdir))
         try:
             with open(logf, "w") as lf:
                 _proc = subprocess.Popen(j["cmd"], stdout=lf, stderr=subprocess.STDOUT,
@@ -487,6 +570,7 @@ def _worker() -> None:
             _current = None
             j["finished_at"] = time.time()
             _save_manifest()
+            _save_queue()
 
 
 def _tail(path: Path, n: int = 40) -> list[str]:
@@ -543,8 +627,53 @@ def _load_manifest() -> None:
         }
 
 
+def _load_queue() -> None:
+    """Подхватить незавершённые задачи с диска: они помечаются interrupted и их можно перезапустить."""
+    try:
+        saved = json.loads(QUEUE_FILE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(saved, list):
+        return
+    restored = 0
+    for item in saved:
+        jid = item.get("id")
+        if not jid or jid in _jobs:
+            continue
+        j = dict(item)
+        j["status"] = "interrupted"
+        j["progress"] = 0.0
+        j["frame"] = 0
+        j["finished_at"] = None
+        j["cancel"] = False
+        j.setdefault("outputs", ["alpha", "fg"])
+        j.setdefault("cmd", [])
+        j.setdefault("media", {})
+        j.setdefault("created_at", time.time())
+        j["log_tail"] = ["daemon restarted — job was interrupted",
+                         "press ↻ to run it again"]
+        _jobs[jid] = j
+        restored += 1
+    if restored:
+        print(f"restored {restored} unfinished job(s) from {QUEUE_FILE.name}", flush=True)
+    _save_queue()
+
+
+def _kill_child() -> None:
+    """При выходе демона не оставлять живой инференс: он держит VRAM и ломает retry."""
+    proc = _proc
+    if proc is not None and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
 def main() -> None:
     _load_manifest()
+    _load_queue()
+    atexit.register(_kill_child)
     if UI.is_dir():
         app.mount("/", StaticFiles(directory=str(UI), html=True), name="ui")
     threading.Thread(target=_worker, daemon=True).start()
