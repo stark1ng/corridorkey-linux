@@ -460,11 +460,69 @@ def active_comp(resolve):
     return comp
 
 
+def paste_build(resolve, job: dict, seqs: dict[str, str], movies: dict[str, str],
+                plate: str, bg: str | None) -> dict[str, str]:
+    """Собрать композ вставкой copy-format текста (компактно, со всеми связями).
+
+    В граф идёт RGBA-вырезка: `cutout`, а если его нет — RGBA, собранный из fg+alpha
+    (у fg альфа нет, он непрозрачный). Фон и видео-результаты перегоняются в PNG.
+    """
+    from resolve.compose_template import paste_compose, prepare_rgba
+
+    outdir = Path(job.get("output_dir") or "")
+    fps = _probe_fps(plate)
+    frames = _probe_frames(plate)
+    print(f"  плашка: {plate} — {frames} кадров, {fps:g} fps")
+
+    subj = seqs.get("cutout")
+    subj_fmt = "OpenEXRFormat"
+    if not subj:
+        if seqs.get("fg") and seqs.get("alpha"):
+            subj = prepare_rgba(seqs["fg"], seqs["alpha"], str(outdir / "_ck_rgba"), frames)
+            subj_fmt = "OpenEXRFormat"
+            print(f"  субъект: fg+alpha → RGBA-секвенция {Path(subj).parent.name}/")
+        elif movies.get("cutout"):
+            subj = _to_sequence(movies["cutout"], outdir / "_ck_seq_cutout", "cutout", fps, frames)
+            subj_fmt = "PNGFormat"
+            print("  субъект: видео cutout → PNG-секвенция (mp4 в Loader не читается)")
+        elif movies.get("fg") and movies.get("alpha"):
+            fg_seq = _to_sequence(movies["fg"], outdir / "_ck_seq_fg", "fg", fps, frames)
+            al_seq = _to_sequence(movies["alpha"], outdir / "_ck_seq_alpha", "alpha", fps, frames)
+            subj = prepare_rgba(fg_seq, al_seq, str(outdir / "_ck_rgba"), frames)
+            subj_fmt = "OpenEXRFormat"
+            print("  субъект: видео fg+alpha → RGBA-секвенция")
+    if not subj:
+        sys.exit("в работе нет ни cutout, ни fg+alpha — собирать нечего")
+
+    bg_seq = None
+    if bg:
+        bg_seq = _to_sequence(bg, outdir / "_ck_seq_bg", "bg", fps, frames)
+        print(f"  фон: {bg} → PNG-секвенция {frames} кадров")
+    else:
+        sys.exit("нужен фон: --bg <картинка|видео>")
+
+    comp = active_comp(resolve)
+    for tool in list((comp.GetToolList() or {}).values()):
+        name = tool.GetAttrs().get("TOOLS_Name") or ""
+        if name.startswith("ck_") or tool.GetAttrs().get("TOOLS_RegID") == "MediaOut":
+            try:
+                tool.Delete()
+            except Exception:  # noqa: BLE001
+                pass
+    ok = paste_compose(resolve, subj, bg_seq, frames, subj_fmt, "PNGFormat")
+    names = sorted(t.GetAttrs().get("TOOLS_Name") or "" for t in (comp.GetToolList() or {}).values())
+    print(f"  вставлено: {ok}; ноды: {', '.join(n for n in names if n)}")
+    if not ok:
+        return {}
+    return {"subject": "ck_subject", "bg": "ck_bg", "merge": "ck_merge", "out": "MediaOut1"}
+
+
 def main(argv: list[str]) -> int:
     spec = None
     plate_arg = None
     bg = None
     dry = False
+    api_mode = False
     args = argv[1:]
     i = 0
     while i < len(args):
@@ -477,6 +535,8 @@ def main(argv: list[str]) -> int:
             bg = args[i + 1]; i += 2
         elif a == "--dry-run":
             dry = True; i += 1
+        elif a == "--api":
+            api_mode = True; i += 1
         elif a in ("-h", "--help"):
             print(__doc__)
             return 0
@@ -498,27 +558,32 @@ def main(argv: list[str]) -> int:
         return 0
 
     resolve = connect()
-    comp = active_comp(resolve)
-    print(f"композиция: {comp.GetAttrs().get('COMPS_Name', '?')}")
-    try:
-        comp.Lock()
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        made = build_comp(comp, job, seqs, movies, plate, bg)
-    finally:
+    if api_mode:
+        comp = active_comp(resolve)
+        print(f"композиция: {comp.GetAttrs().get('COMPS_Name', '?')}")
         try:
-            comp.Unlock()
+            comp.Lock()
         except Exception:  # noqa: BLE001
             pass
-    for role, name in made.items():
-        print(f"  {role:<7} → {name}")
-    problems = verify_connections(comp, made)
-    if problems:
-        for p in problems:
-            print("  [!]", p)
-        return 1
-    print("проверено: все картиночные входы соединены (INPB_Connected); рендер не запускался")
+        try:
+            made = build_comp(comp, job, seqs, movies, plate, bg)
+        finally:
+            try:
+                comp.Unlock()
+            except Exception:  # noqa: BLE001
+                pass
+        for role, name in made.items():
+            print(f"  {role:<7} → {name}")
+        problems = verify_connections(comp, made)
+        if problems:
+            for p in problems:
+                print("  [!]", p)
+            return 1
+    else:
+        made = paste_build(resolve, job, seqs, movies, plate, bg)
+        if not made:
+            return 1
+    print("готово: композиция собрана; дальше проверять рендером (не по Viewer)")
     return 0
 
 
