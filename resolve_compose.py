@@ -271,6 +271,10 @@ def _to_sequence(src: str, dst_dir: Path, prefix: str, fps: float,
         args += ["-loop", "1", "-t", f"{dur:.4f}", "-i", src]
     else:
         args += ["-i", src]
+    if frames:
+        # ровно N кадров: без этого -loop 1 -t округляет вверх и Fusion потом ругается
+        # «This clip is a different length to the old clip» (13 кадров вместо 12)
+        args += ["-frames:v", str(int(frames))]
     args += ["-start_number", "0", "-r", f"{fps:.6g}",
              str(dst_dir / f"{prefix}_%06d.png")]
     try:
