@@ -431,42 +431,32 @@ def _timeline_item_at_playhead(resolve):
 
 
 def active_comp(resolve):
-    """Композиция для сборки — всегда новая, через `AddFusionComp`.
+    """Композиция клипа под плейхедом — «живая» только после открытия Fusion-страницы.
 
-    Проверено на 21.1: композиция, созданная `AddFusionComp`, попадает в рендер,
-    а композиция, появившаяся от открытия страницы Fusion (и то, что отдают
-    `GetFusionCompByName`/`GetFusionCompByIndex`), строится и рисуется в Viewer,
-    но Deliver рендерит исходник клипа. Поэтому сборка всегда делает свой комп.
+    Проверено на 21.1: пока страница Fusion не открыта, ноды можно построить в любом
+    комп-объекте, но клип рендерится исходником. После `OpenPage("fusion")`
+    `fusion.GetCurrentComp()` возвращает именно ту композицию, которую Resolve
+    применяет к клипу (и во Viewer, и в Deliver).
     """
-    tl, item = _timeline_item_at_playhead(resolve)
+    resolve.OpenPage("fusion")
+    fusion = resolve.Fusion()
     comp = None
-    if item is not None:
-        names = item.GetFusionCompNameList() or []   # надёжнее, чем GetFusionCompCount
-        if names:
-            last = item.GetFusionCompByIndex(len(names))
-            if last is not None and _has_tool(last, "ck_merge"):
-                comp = last          # наша прошлая сборка — правим её
-                print(f"  [i] правлю свою композицию {comp.GetAttrs().get('COMPS_Name')}")
-        if comp is None:
-            # новая композиция: только она применяется к клипу в текущей сессии
-            comp = item.AddFusionComp()
-            if comp is not None and names:
-                print(f"  [i] у клипа уже {len(names)} композиций Fusion — добавил свою; "
-                      "старые не тронуты")
-    if comp is None:
-        fusion = resolve.Fusion()
+    for _ in range(15):
+        time.sleep(1.0)
         comp = fusion.GetCurrentComp() if fusion else None
+        if comp is not None:
+            return comp
+    # запасной путь: композиция прямо у клипа (для таймлайнов без открытой страницы)
+    tl, item = _timeline_item_at_playhead(resolve)
+    if item is not None:
+        names = item.GetFusionCompNameList() or []
+        if names:
+            comp = item.GetFusionCompByIndex(len(names))
         if comp is None:
-            # иногда композиция клипа создаётся только после открытия страницы Fusion
-            resolve.OpenPage("fusion")
-            for _ in range(10):
-                time.sleep(1.0)
-                comp = fusion.GetCurrentComp() if fusion else None
-                if comp is not None:
-                    break
+            comp = item.AddFusionComp()
     if comp is None:
         sys.exit("нет композиции Fusion у клипа под плейхедом: положи клип на таймлайн "
-                 "(можно создать композицию через Fusion-страницу) и повтори")
+                 "и повтори")
     return comp
 
 

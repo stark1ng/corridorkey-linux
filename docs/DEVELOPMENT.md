@@ -169,17 +169,17 @@ VIRTUAL_ENV=.venv uv pip install fastapi "uvicorn[standard]" PySide6 requests
 - Композиция клипа создаётся только после `resolve.OpenPage("fusion")` при активном
   клипе таймлайна; до этого `fusion.GetCurrentComp()` возвращает None.
 
-### Несколько композиций у клипа (21.1) — проверено
-- К клипу применяется композиция, созданная **`item.AddFusionComp()`**: она сразу видна
-  в Edit-viewer и в рендере. Композиция, появившаяся от простого открытия страницы
-  Fusion, и то, что отдают `GetFusionCompByName` / `GetFusionCompByIndex`,
-  строятся и рисуются в Fusion-viewer, но клип рендерится исходником.
+### Композиция применяется только после открытия страницы Fusion (21.1) — проверено
+- Пока страница Fusion не открыта, ноды можно построить в любом комп-объекте, но
+  клип рендерится **исходником** — и в Edit-viewer, и в Deliver. После
+  `resolve.OpenPage("fusion")` `fusion.GetCurrentComp()` отдаёт именно ту композицию,
+  которую Resolve применяет к клипу. Поэтому `active_comp()` в `resolve_compose.py`
+  сначала открывает страницу Fusion и ждёт `GetCurrentComp()`, и только потом падает
+  на `item.GetFusionCompByIndex()` / `AddFusionComp()`.
+- Признак «композиция не привязалась»: в Edit-viewer виден исходник, хотя в Fusion-viewer
+  ноды рисуют. Лечение — открыть Fusion-страницу на этом клипе и запустить сборку снова.
 - `GetFusionCompCount()` может вернуть 1 при двух композициях — считать длину
   `GetFusionCompNameList()`.
-- После перезапуска Resolve у клипа с несколькими композициями снова активна первая
-  (пустая): сборка «поверх» чужой композиции не выживает. Правильный сценарий —
-  композиция на клипе, у которого их ещё нет (свежий таймлайн), и проверка настоящим
-  Deliver-рендером **в той же сессии**, где собрана композиция.
 - `DeleteFusionCompByName` / `DeleteTool` в этой сборке не работают (возвращают None,
   композиции остаются) — плодить композиции нельзя, чистить их потом нечем.
 
@@ -192,4 +192,8 @@ VIRTUAL_ENV=.venv uv pip install fastapi "uvicorn[standard]" PySide6 requests
   `pkill -9 -f /opt/resolve/bin/resolve` и запускать один инстанс.
 - `SetRenderSettings` требует, чтобы страница была Deliver (`OpenPage("deliver")`),
   иначе возвращает None без объяснений.
+- **Композ проверен рендером (21.11):** после этих правок Deliver отдаёт сферу на
+  градиентном фоне (12 кадров, `/mnt/Purple/Projects/ck_deliver/ck_deliver_ok.mp4`),
+  зелёного остатка нет. Чёрные кадры были из-за mp4 в Loader, «исходник вместо композа»
+  — из-за закрытой страницы Fusion.
 
