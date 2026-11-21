@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>CorridorKey 2.0 — AI keying</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<canvas id="bg" aria-hidden="true"></canvas>
+<div class="veil" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 6V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1"/><path d="M15 18v1a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-1"/>
+          <path d="M6 9H5a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h1"/><path d="M18 15h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-1"/>
+          <rect x="9" y="9" width="6" height="6" rx="1"/>
+        </svg>
+      </span>
+      <span class="brand-name">CorridorKey</span>
+      <span class="chip-mono">2.0</span>
+    </a>
+
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#queue" data-i18n="nav_queue">Queue</a>
+      <a href="#run" data-i18n="nav_settings">Settings</a>
+      <a href="#log" data-i18n="nav_log">Log</a>
+      <a href="#resolve" data-i18n="nav_resolve">Resolve</a>
+    </nav>
+
+    <div class="meters" id="meters">
+      <div class="meter" title="CPU">
+        <span class="m-label">CPU</span><span class="m-val mono" id="m-cpu">–</span>
+        <i class="m-bar"><b id="mb-cpu"></b></i>
+      </div>
+      <div class="meter" title="RAM">
+        <span class="m-label">RAM</span><span class="m-val mono" id="m-ram">–</span>
+        <i class="m-bar"><b id="mb-ram"></b></i>
+      </div>
+      <div class="meter" title="VRAM">
+        <span class="m-label">VRAM</span><span class="m-val mono" id="m-vram">–</span>
+        <i class="m-bar"><b id="mb-vram"></b></i>
+      </div>
+    </div>
+
+    <div class="nav-right">
+      <select id="lang" class="lang" aria-label="Language">
+        <option value="en">EN</option>
+        <option value="ru">RU</option>
+      </select>
+      <span class="badge glass mono" id="gpu-badge"><span class="tag">LOCAL</span>GPU</span>
+      <span class="status" id="status"><i></i><span data-i18n="st_connecting">connecting…</span></span>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+  <!-- HERO -->
+  <section class="wrap hero">
+    <div class="hero-copy dropzone" id="hero-drop">
+      <span class="badge glass reveal"><span class="tag">NEW</span><span data-i18n="hero_badge">Subject tracking from a first-frame hint</span></span>
+      <h1 class="reveal"><span data-i18n="hero_h1">Precise mattes.</span><br><em>Zero green screen.</em></h1>
+      <p class="lede reveal" data-i18n="hero_lede">CorridorKey 2.0 computes alpha and foreground on your own GPU: green or blue screen without manual keying, EXR sequences for compositing, and import into DaVinci Resolve.</p>
+      <div class="hero-actions reveal">
+        <button class="btn btn-primary" id="btn-add">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span data-i18n="btn_add">Add clip</span>
+        </button>
+        <button class="btn btn-navy" id="btn-resolve">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2"/><path d="M9 12h6"/></svg>
+          <span data-i18n="btn_resolve">Import to Resolve</span>
+        </button>
+      </div>
+      <div class="drop-line reveal" id="hero-drop-line">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        <span data-i18n="hero_drop">Drag a video into this area — or click to choose a file</span>
+      </div>
+      <dl class="hero-meta reveal mono">
+        <div><dt data-i18n="meta_model">Model</dt><dd>hann 80/40</dd></div>
+        <div><dt data-i18n="meta_vram">VRAM peak</dt><dd>~7.5 GB</dd></div>
+        <div><dt data-i18n="meta_license">License</dt><dd>CC BY-NC-SA</dd></div>
+      </dl>
+    </div>
+
+    <div class="hero-visual reveal">
+      <figure class="preview glass" id="preview">
+        <figcaption class="preview-head mono">
+          <span id="pv-title" data-i18n="pv_title">PREVIEW</span>
+          <span class="chips" id="pv-chips"><b id="pv-chip-res">—</b><b id="pv-chip-fmt">—</b></span>
+        </figcaption>
+
+        <div class="preview-stage" id="pv-stage">
+          <div class="checker" aria-hidden="true"></div>
+
+          <div class="pv-idle" id="pv-idle">
+            <svg viewBox="0 0 320 240" aria-hidden="true">
+              <defs>
+                <linearGradient id="subj" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#8a4bff"/><stop offset=".48" stop-color="#4b2ea8"/><stop offset="1" stop-color="#f87b52"/>
+                </linearGradient>
+                <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#ffffff" stop-opacity=".95"/><stop offset="1" stop-color="#cbb8ff" stop-opacity=".55"/>
+                </linearGradient>
+              </defs>
+              <path d="M69 233c2-33 20-56 47-68l13-7-4-14c-11-11-17-26-17-42 0-33 23-56 52-56s52 23 52 56c0 16-6 31-17 42l-4 14 13 7c27 12 45 35 47 68z"
+                    fill="url(#subj)" stroke="url(#rim)" stroke-width="2.6" stroke-linejoin="round" opacity=".92"/>
+              <path d="M108 104c-4-30 18-54 50-54 30 0 50 20 50 47 0 8-2 15-5 21-6-19-22-31-45-31-22 0-38 12-44 30z" fill="rgba(255,255,255,.14)"/>
+              <path d="M86 74c16-31 47-44 78-38 26 5 44 19 54 38" fill="none" stroke="#f87b52" stroke-width="1.8" stroke-dasharray="4 6" opacity=".8"/>
+            </svg>
+            <b data-i18n="pv_idle">No clip in the preview</b>
+            <span data-i18n="pv_idle_hint">Pick a clip, press Start — frames appear here live.</span>
+          </div>
+
+          <img id="pv-img" class="pv-media" alt="" hidden>
+          <video id="pv-video" class="pv-media" playsinline preload="auto" hidden></video>
+          <div class="pv-badge mono" id="pv-badge" hidden></div>
+
+          <button class="pv-close" id="pv-close" title="Close" aria-label="Close" hidden>×</button>
+          <div class="corner tl"></div><div class="corner tr"></div>
+          <div class="corner bl"></div><div class="corner br"></div>
+        </div>
+
+        <div class="pv-controls" id="pv-controls" hidden>
+          <div class="seg" id="pv-kinds">
+            <button type="button" data-kind="alpha" class="on">Alpha</button>
+            <button type="button" data-kind="fg">FG</button>
+            <button type="button" data-kind="source" data-i18n="k_source">Source</button>
+          </div>
+          <input type="range" id="pv-seek" min="0" max="0" step="1" value="0" aria-label="Frame">
+          <span class="mono pv-time" id="pv-time">0 / 0</span>
+          <button class="mini fs-btn" id="pv-fs" data-i18n-title="title_fs" title="Fullscreen" aria-label="Fullscreen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          </button>
+        </div>
+
+        <div class="preview-foot mono">
+          <span id="pv-meta">—</span>
+          <span id="pv-dir" class="pv-dir"></span>
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <!-- WORKSPACE -->
+  <section class="wrap work">
+    <div class="col-main">
+      <article class="card" id="queue">
+        <header class="card-head">
+          <h2><span data-i18n="queue_title">Job queue</span> <span class="count mono" id="job-count">0</span></h2>
+          <div class="head-actions">
+            <button class="btn btn-ghost btn-sm" id="btn-add-2">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              <span data-i18n="btn_add_short">Add</span>
+            </button>
+          </div>
+        </header>
+
+        <div class="jobs" id="jobs" role="list"></div>
+
+        <div class="empty" id="empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 9.5v5l4.5-2.5z"/><path d="M22 4 12 13"/>
+          </svg>
+          <h3 data-i18n="empty_title">Queue is empty</h3>
+          <p data-i18n="empty_text">Drop a clip into the window or pick a file — then press Start.</p>
+          <button class="btn btn-primary btn-sm" id="btn-add-3" data-i18n="btn_choose">Choose clip</button>
+        </div>
+      </article>
+
+      <article class="card" id="log">
+        <header class="card-head">
+          <h2 data-i18n="log_title">Log</h2>
+          <span class="mono muted" id="log-target" data-i18n="log_none">no active job</span>
+        </header>
+        <pre class="log" id="log-body">—</pre>
+      </article>
+    </div>
+
+    <aside class="col-side">
+      <!-- action card: clip, destination, Start -->
+      <article class="card card-run" id="run">
+        <header class="card-head">
+          <h2 data-i18n="run_title">Render</h2>
+        </header>
+
+        <div class="form">
+          <label class="field">
+            <span data-i18n="f_clip">Clip</span>
+            <div class="input-row">
+              <input type="text" id="clip" readonly data-i18n-ph="f_clip_ph" placeholder="no clip selected">
+              <button class="icon-btn" id="btn-clip" data-i18n-title="title_pick_clip" title="Pick clip" aria-label="Pick clip">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              </button>
+            </div>
+            <div class="pending" id="pending"></div>
+          </label>
+
+          <label class="field">
+            <span data-i18n="f_output">Output folder</span>
+            <div class="input-row">
+              <input type="text" id="outdir" data-i18n-ph="f_output_ph" placeholder="default: renders/" autocomplete="off">
+              <button class="icon-btn" id="btn-outdir" data-i18n-title="title_pick_dir" title="Pick folder" aria-label="Pick folder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 13h6"/></svg>
+              </button>
+            </div>
+          </label>
+
+          <div class="runbar">
+            <button class="btn-start" id="btn-start">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
+              <span data-i18n="btn_start">Start</span>
+            </button>
+            <button class="btn-stop" id="btn-stop" data-i18n-title="title_stop" title="Stop" aria-label="Stop" disabled>
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+            </button>
+          </div>
+          <p class="hint-text" data-i18n="run_hint">Pick clips first, then press Start — nothing renders until you do.</p>
+        </div>
+      </article>
+
+      <!-- advanced settings -->
+      <article class="card" id="settings">
+        <header class="card-head">
+          <h2 data-i18n="settings_title">Advanced</h2>
+        </header>
+
+        <div class="form">
+          <label class="field">
+            <span data-i18n="f_outputs">Outputs</span>
+            <select id="outputs">
+              <option value="alpha fg" data-i18n="out_af">alpha + fg</option>
+              <option value="alpha fg checker cutout" data-i18n="out_all">alpha + fg + checker + cutout</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span><span data-i18n="f_hint">First-frame hint</span> <i class="mono tag-inline">png</i></span>
+            <div class="input-row">
+              <input type="text" id="hint" data-i18n-ph="f_hint_ph" placeholder="subject matte, frame 1" autocomplete="off">
+              <button class="icon-btn" id="btn-hint" data-i18n-title="title_pick_hint" title="Pick PNG" aria-label="Pick PNG">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              </button>
+            </div>
+            <p class="hint-warn" id="hint-warn" hidden data-i18n="hint_warn">No hint: the model may lock onto the background instead of the subject.</p>
+          </label>
+
+          <div class="field">
+            <span><span data-i18n="f_hint_q">Hint quality</span> <output class="mono out" id="hint-q-out">0.95</output></span>
+            <input type="range" id="hint-q" min="0" max="1" step="0.05" value="0.95">
+          </div>
+
+          <div class="field">
+            <span><span data-i18n="f_despill">Despill</span> <output class="mono out" id="despill-out">0.50</output></span>
+            <input type="range" id="despill" min="0" max="1" step="0.05" value="0.5">
+          </div>
+
+          <label class="field">
+            <span><span data-i18n="f_frames">Frames (test)</span> <i class="mono tag-inline" data-i18n="f_frames_hint">0 = all</i></span>
+            <input type="number" id="num-frames" min="0" max="100000" data-i18n-ph="f_frames_ph" placeholder="all">
+          </label>
+
+          <div class="toggles">
+            <label class="toggle"><input type="checkbox" id="exr"><i></i><span>EXR <b class="mono">linear</b></span></label>
+            <label class="toggle"><input type="checkbox" id="low-vram"><i></i><span>Low VRAM</span></label>
+          </div>
+        </div>
+      </article>
+
+      <article class="card" id="resolve">
+        <header class="card-head">
+          <h2>DaVinci Resolve</h2>
+          <span class="chip-mono">studio</span>
+        </header>
+        <p class="card-text" data-i18n="resolve_text">Finished jobs are imported into the media pool through the official Scripting API. Resolve must be running with <b>External scripting = Local</b>.</p>
+        <button class="btn btn-navy btn-block" id="btn-import">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 19h16"/></svg>
+          <span data-i18n="btn_import">Import finished jobs</span>
+        </button>
+        <dl class="kv mono">
+          <div><dt data-i18n="kv_renders">renders</dt><dd id="kv-done">0</dd></div>
+          <div><dt data-i18n="kv_manifest">manifest</dt><dd>renders/manifest.json</dd></div>
+        </dl>
+      </article>
+    </aside>
+  </section>
+
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <div class="foot-brand">
+        <span class="mark sm" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 6V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1"/><path d="M15 18v1a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-1"/>
+            <path d="M6 9H5a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h1"/><path d="M18 15h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-1"/>
+            <rect x="9" y="9" width="6" height="6" rx="1"/>
+          </svg>
+        </span>
+        <span>CorridorKey 2.0 · Linux wrapper</span>
+      </div>
+      <p class="mono" data-i18n="foot_note">Results may be used commercially · reselling the tool is not allowed · 2026</p>
+    </div>
+  </footer>
+</main>
+
+<div class="drop" id="drop" aria-hidden="true">
+  <div class="drop-inner glass">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+    <b data-i18n="drop_title">Drop to add a clip</b>
+    <span class="mono">mp4 · mov · mkv · mxf</span>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="qwebchannel.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

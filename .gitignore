@@ -1,0 +1,27 @@
+# local
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# runtime data
+logs/
+renders/
+backups/
+pics/
+NEXT_SESSION.md
+
+# engine clone + weights (install with setup.sh)
+CorridorKey2.0/
+
+# generated at first launch from Qt resources
+ui/qwebchannel.js
+
+# demo/test byproducts
+test/out/
+test/out_exr/
+test/out_hint/
+demo/preview.png
+demo/plate_small.png
+demo/sphere.png
+demo/green.png
