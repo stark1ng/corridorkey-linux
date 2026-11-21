@@ -14,7 +14,9 @@
       hero_badge: "Subject tracking from a first-frame hint",
       hero_h1: "Precise mattes.",
       hero_lede: "CorridorKey 2.0 computes alpha and foreground on your own GPU: green or blue screen without manual keying, EXR sequences for compositing, and import into DaVinci Resolve.",
-      btn_add: "Add clip", btn_add_short: "Add", btn_resolve: "Import to Resolve",
+      btn_add: "Add clip", btn_add_short: "Add", btn_resolve: "Build comp in Resolve",
+      btn_compose: "Build comp in Resolve", f_bg: "Background", f_bg_ph: "image or video",
+      ck_status: "Comp goes to the clip under the playhead of the open timeline.",
       btn_choose: "Choose clip", btn_start: "Start", btn_import: "Import finished jobs",
       meta_model: "Model", meta_vram: "VRAM peak", meta_license: "License",
       st_connecting: "connecting…", st_online: "daemon online", st_rendering: "rendering", st_offline: "daemon offline",
@@ -42,7 +44,7 @@
       prof_hint_custom: "low VRAM staging from the checkbox, window auto-selected",
       f_hint_q: "Hint quality", f_despill: "Despill",
       f_frames: "Frames (test)", f_frames_hint: "0 = all", f_frames_ph: "all",
-      resolve_text: "Finished jobs are imported into the media pool through the official Scripting API. Resolve must be running with <b>External scripting = Local</b>.",
+      resolve_text: "Builds a Fusion comp for the selected finished job — cutout (RGBA) over your background, four nodes. Resolve must be running with <b>External scripting = Local</b>.",
       kv_renders: "renders", kv_manifest: "manifest",
       foot_note: "Results may be used commercially · reselling the tool is not allowed · 2026",
       drop_title: "Drop to add a clip",
@@ -55,6 +57,7 @@
       pv_prep: "preparing preview", pv_prep_fail: "Could not prepare the preview",
       t_deleted: "Removed from the queue", t_delete_err: "Could not remove: {e}",
       dlg_clip: "Clip to key", dlg_hint: "First-frame hint matte", dlg_out: "Output folder",
+      dlg_bg: "Background for the comp", title_pick_bg: "Pick background",
       s_queued: "queued", s_running: "rendering", s_done: "done", s_failed: "failed", s_cancelled: "cancelled",
       s_interrupted: "interrupted",
       title_retry: "Run again", t_retried: "Queued again: {n}", t_retry_err: "Retry failed: {e}",
@@ -65,6 +68,10 @@
       t_cancel: "Cancelling…", t_cancel_err: "Cancel failed: {e}",
       t_submit_err: "Could not start: {e}", t_hint: "Hint: {n}", t_out: "Output folder: {n}",
       t_import: "Import started — Resolve must be open",
+      t_compose: "Building the comp — Resolve must be open",
+      t_no_job: "Pick a finished job in the queue first",
+      t_no_bg: "Pick a background first",
+      t_bg: "Background: {n}",
       t_no_bridge: "Available in the desktop app",
       t_frame: "frame {i} / {n}", t_pct: "{p}%",
       pv_live: "live", pv_result: "RESULT", pv_no_result: "no alpha/fg result yet",
@@ -77,7 +84,9 @@
       hero_badge: "Отслеживание субъекта по хинту кадра",
       hero_h1: "Точная матовка.",
       hero_lede: "CorridorKey 2.0 считает альфу и foreground прямо на вашей GPU: грин- и блюскрин без ручной настройки ключей, EXR-секвенции для композа и импорт в DaVinci Resolve.",
-      btn_add: "Добавить клип", btn_add_short: "Добавить", btn_resolve: "Импорт в Resolve",
+      btn_add: "Добавить клип", btn_add_short: "Добавить", btn_resolve: "Композ в Resolve",
+      btn_compose: "Собрать композ в Resolve", f_bg: "Фон", f_bg_ph: "картинка или видео",
+      ck_status: "Композ ставится на клип под плейхедом открытого таймлайна.",
       btn_choose: "Выбрать клип", btn_start: "Старт", btn_import: "Импортировать готовые",
       meta_model: "Модель", meta_vram: "VRAM пик", meta_license: "Лицензия",
       st_connecting: "подключение…", st_online: "демон online", st_rendering: "рендер идёт", st_offline: "демон offline",
@@ -105,7 +114,7 @@
       prof_hint_custom: "low VRAM из чекбокса, окно подберётся автоматически",
       f_hint_q: "Качество хинта", f_despill: "Despill",
       f_frames: "Кадров (тест)", f_frames_hint: "0 = все", f_frames_ph: "все",
-      resolve_text: "Готовые работы импортируются в медиапул через официальный Scripting API. Нужен запущенный Resolve и <b>External scripting = Local</b>.",
+      resolve_text: "Собирает Fusion-композ для выбранной готовой работы: cutout (RGBA) поверх фона, четыре ноды. Нужен запущенный Resolve и <b>External scripting = Local</b>.",
       kv_renders: "рендеров", kv_manifest: "манифест",
       foot_note: "Результаты можно использовать коммерчески · перепродажа тула запрещена · 2026",
       drop_title: "Отпустите, чтобы добавить клип",
@@ -118,6 +127,7 @@
       pv_prep: "готовлю предпросмотр", pv_prep_fail: "Не удалось подготовить предпросмотр",
       t_deleted: "Убрано из очереди", t_delete_err: "Не удалось убрать: {e}",
       dlg_clip: "Клип для кеинга", dlg_hint: "Маска (хинт) первого кадра", dlg_out: "Папка для результатов",
+      dlg_bg: "Фон для композа", title_pick_bg: "Выбрать фон",
       s_queued: "в очереди", s_running: "рендер", s_done: "готово", s_failed: "ошибка", s_cancelled: "отменено",
       s_interrupted: "прервано",
       title_retry: "Запустить снова", t_retried: "Снова в очереди: {n}", t_retry_err: "Повтор не удался: {e}",
@@ -128,6 +138,10 @@
       t_cancel: "Отменяю…", t_cancel_err: "Отмена не удалась: {e}",
       t_submit_err: "Не удалось запустить: {e}", t_hint: "Хинт: {n}", t_out: "Папка результата: {n}",
       t_import: "Импорт запущен — Resolve должен быть открыт",
+      t_compose: "Композ собирается — Resolve должен быть открыт",
+      t_no_job: "Сначала выбери готовую работу в очереди",
+      t_no_bg: "Сначала выбери фон",
+      t_bg: "Фон: {n}",
       t_no_bridge: "Доступно в приложении",
       t_frame: "кадр {i} / {n}", t_pct: "{p}%",
       pv_live: "в процессе", pv_result: "РЕЗУЛЬТАТ", pv_no_result: "результата alpha/fg пока нет",
@@ -225,6 +239,7 @@
     exr: $("#exr"),
     lowVram: $("#low-vram"),
     outdir: $("#outdir"),
+    bg: $("#ck-bg"),
   };
 
   /* профили из таблицы upstream «Long Clips And Low VRAM» (16 ГБ: 720p 80/40,
@@ -257,6 +272,7 @@
       exr: S.exr.checked,
       low_vram: S.lowVram.checked,
       output_dir: S.outdir.value.trim(),
+      bg: S.bg.value.trim(),
       lang,
     };
   }
@@ -274,6 +290,7 @@
     if (typeof v.despill === "number") S.despill.value = v.despill;
     if (v.num_frames) S.frames.value = v.num_frames;
     if (v.output_dir) S.outdir.value = v.output_dir;
+    if (v.bg) S.bg.value = v.bg;
     S.exr.checked = !!v.exr;
     S.lowVram.checked = !!v.low_vram;
   }
@@ -424,6 +441,9 @@
     for (const [id, el] of state.nodes) el.classList.toggle("sel", id === state.selected);
     renderLog(force);
   }
+
+  /* выбранная работа в очереди (её id держит state.selected) */
+  const selJob = () => state.jobs.find((x) => x.id === state.selected) || null;
 
   function renderLog(force) {
     const j = state.jobs.find((x) => x.id === state.selected);
@@ -835,6 +855,24 @@
     toast(r || t("t_import"));
   }
 
+  async function pickBg() {
+    if (!state.bridge) return toast(t("t_no_bridge"), "err");
+    const p = await call(state.bridge.browseBackground, t("dlg_bg"));
+    if (p) { S.bg.value = p; saveSettings(); toast(t("t_bg", { n: base(p) })); }
+  }
+
+  async function composeResolve() {
+    if (!state.bridge) return toast(t("t_no_bridge"), "err");
+    const job = selJob();
+    if (!job || job.status !== "done") return toast(t("t_no_job"), "err");
+    const bg = S.bg.value.trim();
+    if (!bg) return toast(t("t_no_bg"), "err");
+    $("#ck-status").textContent = t("t_compose");
+    const r = await call(state.bridge.composeResolve, job.id, bg);
+    $("#ck-status").textContent = r || t("t_compose");
+    toast(r || t("t_compose"));
+  }
+
   /* ── Qt drag & drop ─────────────────────────────────────────────────── */
   window.ck = {
     drag(active) {
@@ -931,8 +969,11 @@
     $("#pv-close").addEventListener("click", exitCinema);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") exitCinema(); });
     $("#btn-stop").addEventListener("click", stopCurrent);
-    $("#btn-resolve").addEventListener("click", importResolve);
+    $("#btn-resolve").addEventListener("click", composeResolve);
+    $("#btn-compose").addEventListener("click", composeResolve);
     $("#btn-import").addEventListener("click", importResolve);
+    $("#btn-bg").addEventListener("click", pickBg);
+    S.bg.addEventListener("change", saveSettings);
 
     [S.hintQ, S.despill].forEach((r) => r.addEventListener("input", () => { syncSliders(); saveSettings(); }));
     [S.outputs, S.exr, S.lowVram, S.frames, S.outdir].forEach((el) => el.addEventListener("change", saveSettings));

@@ -290,11 +290,25 @@
           <h2>DaVinci Resolve</h2>
           <span class="chip-mono">studio</span>
         </header>
-        <p class="card-text" data-i18n="resolve_text">Finished jobs are imported into the media pool through the official Scripting API. Resolve must be running with <b>External scripting = Local</b>.</p>
-        <button class="btn btn-navy btn-block" id="btn-import">
+        <p class="card-text" data-i18n="resolve_text">Builds a Fusion comp for the selected finished job: the cutout (RGBA) over your background, with a compact four-node graph. Resolve must be running with <b>External scripting = Local</b>.</p>
+        <label class="field">
+          <span data-i18n="f_bg">Background</span>
+          <div class="input-row">
+            <input type="text" id="ck-bg" data-i18n-ph="f_bg_ph" placeholder="image or video" autocomplete="off">
+            <button class="icon-btn" id="btn-bg" data-i18n-title="title_pick_bg" title="Pick background" aria-label="Pick background">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4 18 5-5 4 4 3-3 4 4"/></svg>
+            </button>
+          </div>
+        </label>
+        <button class="btn btn-navy btn-block" id="btn-compose">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2"/><path d="M9 12h6"/></svg>
+          <span data-i18n="btn_compose">Build comp in Resolve</span>
+        </button>
+        <button class="btn btn-ghost btn-block" id="btn-import">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 19h16"/></svg>
           <span data-i18n="btn_import">Import finished jobs</span>
         </button>
+        <p class="hint-text" id="ck-status" data-i18n="ck_status">Comp goes to the clip under the playhead of the open timeline.</p>
         <dl class="kv mono">
           <div><dt data-i18n="kv_renders">renders</dt><dd id="kv-done">0</dd></div>
           <div><dt data-i18n="kv_manifest">manifest</dt><dd>renders/manifest.json</dd></div>

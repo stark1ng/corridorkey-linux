@@ -37,6 +37,15 @@ from PySide6.QtWidgets import (  # noqa: E402
 )
 
 MEDIA = "Медиа (*.mp4 *.mov *.mkv *.mxf *.avi)"
+BG_FILES = "Фон: картинка или видео (*.png *.jpg *.jpeg *.tif *.tiff *.exr *.mp4 *.mov *.mkv)"
+
+# Resolve-скрипты требуют системный python3.12 и fusionscript: venv-питон модуль
+# DaVinciResolveScript не видит, поэтому запускать только так.
+SYS_PY = Path("/usr/bin/python3.12")
+RESOLVE_ENV = {
+    "RESOLVE_SCRIPT_LIB": "/opt/resolve/libs/Fusion/fusionscript.so",
+    "PYTHONPATH": "/opt/resolve/Developer/Scripting/Modules",
+}
 
 # QFileDialog — отдельное окно Qt, поэтому его тёмную тему задаём явно:
 # палитра + QSS (иначе системная светлая палитра на чёрном фоне даёт чёрный текст).
@@ -265,6 +274,13 @@ class Bridge(QObject):
         return path
 
     @Slot(str, result=str)
+    def browseBackground(self, title: str = "") -> str:  # noqa: N802
+        dlg = dark_dialog(self.window, title or "Фон для композа", last_dir("bg"), BG_FILES)
+        path = dlg.selectedFiles()[0] if dlg.exec() and dlg.selectedFiles() else ""
+        remember_dir("bg", path)
+        return path
+
+    @Slot(str, result=str)
     def openFolder(self, path: str) -> str:  # noqa: N802
         p = Path(path)
         if p.is_file():
@@ -279,12 +295,40 @@ class Bridge(QObject):
         client = ROOT / "resolve_client.py"
         if not client.exists():
             return "resolve_client.py не найден"
+        env = os.environ.copy()
+        env.update(RESOLVE_ENV)
         log = open(ROOT / "logs" / "resolve.log", "a", buffering=1)  # noqa: SIM115
         subprocess.Popen(
-            [str(VENV_PY), str(client)], stdout=log, stderr=subprocess.STDOUT,
-            cwd=ROOT, start_new_session=True,
+            [str(SYS_PY), str(client)], stdout=log, stderr=subprocess.STDOUT,
+            cwd=ROOT, env=env, start_new_session=True,
         )
         return "Импорт запущен — нужен открытый Resolve Studio"
+
+    @Slot(str, str, result=str)
+    def composeResolve(self, job_id: str = "", bg: str = "") -> str:  # noqa: N802
+        """Собрать Fusion-композ работы: субъект из `cutout`/fg+alpha поверх фона."""
+        script = ROOT / "resolve_compose.py"
+        if not script.exists():
+            return "resolve_compose.py не найден"
+        job_id = (job_id or "").strip()
+        if not job_id:
+            return "не выбрана работа — нажми на готовую в очереди"
+        if not bg:
+            return "не выбран фон — укажи картинку или видео"
+        if not Path(bg).is_file():
+            return f"фон не найден: {bg}"
+        if not SYS_PY.exists():
+            return "нет /usr/bin/python3.12 — Resolve-скрипты не запустятся"
+        env = os.environ.copy()
+        env.update(RESOLVE_ENV)
+        log = open(ROOT / "logs" / "resolve.log", "a", buffering=1)  # noqa: SIM115
+        subprocess.Popen(
+            [str(SYS_PY), str(script), "--job", job_id, "--bg", bg],
+            stdout=log, stderr=subprocess.STDOUT, cwd=ROOT, env=env,
+            start_new_session=True,
+        )
+        return ("Композ собирается — Resolve должен быть запущен. "
+                "Ход и ошибки: logs/resolve.log")
 
     @Slot(str, result=str)
     def openUrl(self, url: str) -> str:  # noqa: N802
